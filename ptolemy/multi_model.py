@@ -9,6 +9,7 @@ from loguru import logger
 
 from ptolemy.config import AI_PROVIDERS, MODEL_REGISTRY, DEFAULT_PROVIDER
 from ptolemy.context_engine import ContextEngine
+from ptolemy.utils import async_retry
 
 
 class MultiModelProcessor:
@@ -139,6 +140,7 @@ class MultiModelProcessor:
         self.model_registry[model_type] = config
         logger.info(f"Registered model: {model_type}")
     
+    @async_retry(max_retries=3, base_delay=1, backoff_factor=2, jitter=0.1)
     async def route_task(
         self, 
         task: str, 

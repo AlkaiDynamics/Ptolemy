@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}PTOLEMY - {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- Project Header -->
+    <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+        <div class="flex justify-between items-start">
+            <div>
+                <h2 class="text-2xl font-bold text-celestial-blue">{{ project.name }}</h2>
+                <p class="text-gray-300 mt-2">{{ project.description }}</p>
+                <p class="text-sm text-gray-400 mt-4">Created: {{ project.created }}</p>
+            </div>
+            <div class="flex space-x-3">
+                <a href="/generate?project={{ project.id }}" class="py-2 px-4 bg-celestial-blue hover:bg-celestial-blue/80 rounded-lg transition">
+                    Generate
+                </a>
+                <button class="py-2 px-4 bg-deep-space hover:bg-deep-space/80 rounded-lg transition border border-celestial-blue/30">
+                    Export
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Project Timeline -->
+    <div>
+        <h3 class="text-xl font-bold mb-4 text-celestial-blue">Project Timeline</h3>
+        
+        <div class="timeline">
+            {% for event in events %}
+            <div class="timeline-event">
+                <div class="flex justify-between items-start">
+                    <h4 class="font-semibold">{{ event.type }}</h4>
+                    <span class="text-sm text-gray-400">{{ event.timestamp }}</span>
+                </div>
+                
+                {% if event.data %}
+                <div class="mt-2">
+                    <div class="text-sm text-gray-300">
+                        {% for key, value in event.data.items() %}
+                        <div class="flex">
+                            <span class="font-semibold w-24">{{ key }}:</span>
+                            <span>{{ value }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <!-- Project Insights -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Activity</h3>
+            <div class="space-y-2">
+                <div class="flex justify-between">
+                    <span>Total Events</span>
+                    <span class="font-semibold">{{ events|length }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Generations</span>
+                    <span class="font-semibold">{{ events|selectattr('type', 'equalto', 'ui_generation')|list|length }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Last Activity</span>
+                    <span class="font-semibold">{{ events[-1].timestamp if events else 'N/A' }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Related Patterns</h3>
+            <div class="text-gray-300">
+                <p>No patterns detected yet.</p>
+                <p class="mt-2 text-sm">Patterns will be identified as you continue to work with this project.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

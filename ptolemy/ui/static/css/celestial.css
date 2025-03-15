@@ -1,0 +1,170 @@
+/* PTOLEMY UI - Celestial CSS Theme */
+
+:root {
+  --deep-space: #0c1445;
+  --celestial-blue: #1a73e8;
+  --stellar-gold: #ffc107;
+  --nebula-purple: #673ab7;
+  --planetary-green: #4caf50;
+}
+
+body {
+  background-color: var(--deep-space);
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(30, 60, 114, 0.2) 0%, rgba(12, 20, 69, 0.2) 90%);
+  color: white;
+}
+
+.bg-deep-space {
+  background-color: var(--deep-space);
+}
+
+.text-celestial-blue {
+  color: var(--celestial-blue);
+}
+
+.border-celestial-blue {
+  border-color: var(--celestial-blue);
+}
+
+/* Celestial Icon */
+.celestial-icon {
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(var(--celestial-blue), var(--deep-space));
+  box-shadow: 0 0 10px rgba(26, 115, 232, 0.5);
+}
+
+.celestial-icon::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Celestial Sphere for Projects */
+.celestial-sphere {
+  position: relative;
+  width: 100%;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(26, 115, 232, 0.1) 0%, rgba(12, 20, 69, 0.5) 70%);
+  overflow: hidden;
+  border: 1px solid rgba(26, 115, 232, 0.3);
+}
+
+.project-body {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(var(--celestial-blue), var(--deep-space));
+  box-shadow: 0 0 20px rgba(26, 115, 232, 0.5);
+  cursor: pointer;
+  transition: transform 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.project-body:hover {
+  transform: scale(1.1);
+}
+
+/* Orbital navigation */
+.orbit {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Timeline visualization */
+.timeline {
+  position: relative;
+  padding-left: 2rem;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--celestial-blue), var(--nebula-purple));
+}
+
+.timeline-event {
+  position: relative;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(12, 20, 69, 0.5);
+  border-radius: 0.5rem;
+  border-left: 2px solid var(--celestial-blue);
+}
+
+.timeline-event::before {
+  content: '';
+  position: absolute;
+  left: -1.5rem;
+  top: 1.5rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--celestial-blue);
+  box-shadow: 0 0 10px var(--celestial-blue);
+}
+
+/* Celestial Loader */
+.celestial-loader {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.celestial-loader .orbit {
+  width: 80px;
+  height: 80px;
+  border: 2px solid rgba(26, 115, 232, 0.3);
+  border-radius: 50%;
+  animation: orbit-rotate 2s linear infinite;
+}
+
+.celestial-loader .planet {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: var(--celestial-blue);
+  box-shadow: 0 0 10px var(--celestial-blue);
+  animation: planet-rotate 2s linear infinite;
+}
+
+@keyframes orbit-rotate {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes planet-rotate {
+  0% {
+    transform: rotate(0deg) translateX(40px) rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(40px) rotate(-360deg);
+  }
+}

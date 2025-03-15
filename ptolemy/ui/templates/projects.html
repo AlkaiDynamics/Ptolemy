@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}PTOLEMY - Projects{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-celestial-blue">Project Universe</h2>
+        <button 
+            class="py-2 px-4 bg-celestial-blue hover:bg-celestial-blue/80 rounded-lg transition"
+            onclick="window.location.href='/projects/new'">
+            New Project
+        </button>
+    </div>
+    
+    <div class="celestial-sphere">
+        <!-- Projects will be positioned here via JavaScript -->
+        <div class="orbit" style="width: 200px; height: 200px;"></div>
+        <div class="orbit" style="width: 400px; height: 400px;"></div>
+        <div class="orbit" style="width: 600px; height: 600px;"></div>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for project in projects %}
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30 hover:border-celestial-blue transition cursor-pointer"
+             onclick="window.location.href='/projects/{{ project.id }}'">
+            <h3 class="text-xl font-bold mb-2 text-celestial-blue">{{ project.name }}</h3>
+            <p class="text-gray-300 mb-4">{{ project.description }}</p>
+            <div class="flex justify-between text-sm text-gray-400">
+                <span>Created: {{ project.created }}</span>
+                <span>Events: {{ project.event_count }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Celestial sphere visualization
+    const sphere = document.querySelector('.celestial-sphere');
+    const centerX = sphere.clientWidth / 2;
+    const centerY = sphere.clientHeight / 2;
+    
+    const projects = {{ projects_json|safe }};
+    
+    // Position projects in celestial orbits
+    projects.forEach((project, index) => {
+        const angle = (index / projects.length) * Math.PI * 2;
+        const orbit = Math.floor(index % 3); // Use one of three orbits
+        const orbitRadius = [100, 200, 300][orbit]; // Different orbit radii
+        
+        const x = centerX + Math.cos(angle) * orbitRadius;
+        const y = centerY + Math.sin(angle) * orbitRadius;
+        
+        const size = 60 + Math.floor(project.event_count / 5) * 10; // Size based on activity
+        
+        const projectEl = document.createElement('div');
+        projectEl.classList.add('project-body');
+        projectEl.style.width = `${size}px`;
+        projectEl.style.height = `${size}px`;
+        projectEl.style.left = `${x - size/2}px`;
+        projectEl.style.top = `${y - size/2}px`;
+        projectEl.textContent = project.name.split(' ')[0];
+        projectEl.addEventListener('click', () => {
+            window.location.href = `/projects/${project.id}`;
+        });
+        
+        sphere.appendChild(projectEl);
+    });
+</script>
+{% endblock %}

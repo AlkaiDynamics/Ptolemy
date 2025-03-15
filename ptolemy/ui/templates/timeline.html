@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}PTOLEMY - Timeline{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-celestial-blue">Temporal Timeline</h2>
+        <div class="flex space-x-3">
+            <select 
+                id="filter-type" 
+                class="p-2 bg-deep-space/70 border border-celestial-blue/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-celestial-blue"
+                onchange="filterTimeline()">
+                <option value="all">All Events</option>
+                <option value="project_initialized">Project Events</option>
+                <option value="ui_generation">Generation Events</option>
+                <option value="feedback_recorded">Feedback Events</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="timeline">
+        {% for date, day_events in events_by_date.items() %}
+        <div class="mb-8 timeline-date">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">{{ date }}</h3>
+            
+            {% for event in day_events %}
+            <div class="timeline-event" data-event-type="{{ event.type }}">
+                <div class="flex justify-between items-start">
+                    <h4 class="font-semibold">{{ event.type }}</h4>
+                    <span class="text-sm text-gray-400">{{ event.timestamp.split('T')[1].split('.')[0] }}</span>
+                </div>
+                
+                {% if event.data %}
+                <div class="mt-2">
+                    <div class="text-sm text-gray-300">
+                        {% for key, value in event.data.items() %}
+                        <div class="flex">
+                            <span class="font-semibold w-24">{{ key }}:</span>
+                            <span>{{ value }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <div class="mt-2 text-sm">
+                    <a href="/events/{{ event.id }}" class="text-celestial-blue hover:underline">View Details</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Timeline Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Event Statistics</h3>
+            <div class="space-y-2">
+                <div class="flex justify-between">
+                    <span>Total Events</span>
+                    <span class="font-semibold">{{ event_count }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Date Range</span>
+                    <span class="font-semibold">{{ events_by_date.keys()|list|first }} to {{ events_by_date.keys()|list|last }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Event Types</h3>
+            <div id="event-type-stats" class="space-y-2">
+                <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Activity Trends</h3>
+            <div class="text-gray-300">
+                <p>Activity visualization coming soon.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Count event types
+    const eventTypes = {};
+    document.querySelectorAll('.timeline-event').forEach(event => {
+        const type = event.getAttribute('data-event-type');
+        eventTypes[type] = (eventTypes[type] || 0) + 1;
+    });
+    
+    // Display event type statistics
+    const statsContainer = document.getElementById('event-type-stats');
+    Object.entries(eventTypes).forEach(([type, count]) => {
+        const div = document.createElement('div');
+        div.className = 'flex justify-between';
+        div.innerHTML = `<span>${type}</span><span class="font-semibold">${count}</span>`;
+        statsContainer.appendChild(div);
+    });
+    
+    // Filter timeline by event type
+    function filterTimeline() {
+        const filterValue = document.getElementById('filter-type').value;
+        const events = document.querySelectorAll('.timeline-event');
+        
+        events.forEach(event => {
+            const type = event.getAttribute('data-event-type');
+            if (filterValue === 'all' || type === filterValue) {
+                event.style.display = 'block';
+            } else {
+                event.style.display = 'none';
+            }
+        });
+        
+        // Hide date headers with no visible events
+        document.querySelectorAll('.timeline-date').forEach(dateSection => {
+            const visibleEvents = dateSection.querySelectorAll('.timeline-event[style="display: block"]').length;
+            dateSection.style.display = visibleEvents > 0 ? 'block' : 'none';
+        });
+    }
+</script>
+{% endblock %}

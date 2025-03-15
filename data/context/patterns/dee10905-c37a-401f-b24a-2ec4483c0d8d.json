@@ -1,0 +1,10 @@
+{
+  "id": "dee10905-c37a-401f-b24a-2ec4483c0d8d",
+  "name": "test_pattern",
+  "type": "python",
+  "implementation": "def example(): pass",
+  "metadata": {
+    "category": "test"
+  },
+  "timestamp": "2025-03-15T05:42:03.893606"
+}

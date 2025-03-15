@@ -3,9 +3,11 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from sqlalchemy import select, and_
 
 from loguru import logger
 from ptolemy.config import TEMPORAL_DIR
+from ptolemy.database import async_session, Event
 
 
 class TemporalCore:
@@ -17,6 +19,7 @@ class TemporalCore:
     def __init__(self, storage_path: Optional[Path] = None):
         self.storage_path = storage_path or TEMPORAL_DIR
         self.current_events = []
+        self.db_enabled = True
     
     async def initialize(self):
         """Initialize the Temporal Core system."""
@@ -27,6 +30,21 @@ class TemporalCore:
         except Exception as e:
             logger.error(f"Failed to initialize Temporal Core: {str(e)}")
             raise
+    
+    async def _save_event_to_file(self, event: Dict[str, Any]) -> Path:
+        """
+        Save an event to a file in the storage path.
+        
+        Args:
+            event: The event to save
+            
+        Returns:
+            The path to the saved file
+        """
+        event_file_path = self.storage_path / f"{event['id']}.json"
+        with open(event_file_path, 'w') as f:
+            json.dump(event, f, indent=2)
+        return event_file_path
     
     async def record_event(self, event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -47,9 +65,20 @@ class TemporalCore:
         }
         
         try:
-            event_file_path = self.storage_path / f"{event['id']}.json"
-            with open(event_file_path, 'w') as f:
-                json.dump(event, f, indent=2)
+            # Store in file system for backward compatibility
+            await self._save_event_to_file(event)
+            
+            # Store in database if enabled
+            if self.db_enabled:
+                async with async_session() as session:
+                    db_event = Event(
+                        id=event["id"],
+                        timestamp=datetime.fromisoformat(event["timestamp"]),
+                        type=event_type,
+                        data=event_data
+                    )
+                    session.add(db_event)
+                    await session.commit()
             
             self.current_events.append(event)
             logger.info(f"Event recorded: {event_type} ({event['id']})")
@@ -69,30 +98,70 @@ class TemporalCore:
             A list of events matching the filters
         """
         filters = filters or {}
+        
         try:
-            events = []
-            for event_file in self.storage_path.glob("*.json"):
-                with open(event_file, 'r') as f:
-                    event_data = json.load(f)
+            if self.db_enabled:
+                # Use database query with SQLAlchemy
+                async with async_session() as session:
+                    query = select(Event)
+                    
+                    # Apply filters
+                    if "type" in filters:
+                        query = query.where(Event.type == filters["type"])
+                    if "time_after" in filters:
+                        query = query.where(Event.timestamp > datetime.fromisoformat(filters["time_after"]))
+                    if "time_before" in filters:
+                        query = query.where(Event.timestamp < datetime.fromisoformat(filters["time_before"]))
+                    if "project_id" in filters:
+                        # This assumes project_id is stored in the data JSON
+                        # For proper JSON field querying, consider PostgreSQL
+                        pass
+                    
+                    # Order by timestamp
+                    query = query.order_by(Event.timestamp)
+                    
+                    result = await session.execute(query)
+                    db_events = result.scalars().all()
+                    
+                    # Convert to dict format for API consistency
+                    events = []
+                    for db_event in db_events:
+                        events.append({
+                            "id": db_event.id,
+                            "timestamp": db_event.timestamp.isoformat(),
+                            "type": db_event.type,
+                            "data": db_event.data
+                        })
+                    
+                    return events
+            else:
+                # Fall back to file-based retrieval (as in your original code)
+                events = []
+                for event_file in self.storage_path.glob("*.json"):
+                    with open(event_file, 'r') as f:
+                        event_data = json.load(f)
+                    
+                    # Apply filters if any
+                    include_event = True
+                    for key, value in filters.items():
+                        if key == "type" and event_data["type"] != value:
+                            include_event = False
+                            break
+                        if key == "time_after" and datetime.fromisoformat(event_data["timestamp"]) <= datetime.fromisoformat(value):
+                            include_event = False
+                            break
+                        if key == "time_before" and datetime.fromisoformat(event_data["timestamp"]) >= datetime.fromisoformat(value):
+                            include_event = False
+                            break
+                        if key == "project_id" and event_data.get("data", {}).get("project_id") != value:
+                            include_event = False
+                            break
+                    
+                    if include_event:
+                        events.append(event_data)
                 
-                # Apply filters if any
-                include_event = True
-                for key, value in filters.items():
-                    if key == "type" and event_data["type"] != value:
-                        include_event = False
-                        break
-                    if key == "time_after" and datetime.fromisoformat(event_data["timestamp"]) <= datetime.fromisoformat(value):
-                        include_event = False
-                        break
-                    if key == "time_before" and datetime.fromisoformat(event_data["timestamp"]) >= datetime.fromisoformat(value):
-                        include_event = False
-                        break
-                
-                if include_event:
-                    events.append(event_data)
-            
-            # Sort events by timestamp
-            return sorted(events, key=lambda x: x["timestamp"])
+                # Sort events by timestamp
+                return sorted(events, key=lambda x: x["timestamp"])
         except Exception as e:
             logger.error(f"Failed to get events: {str(e)}")
             raise
@@ -108,10 +177,27 @@ class TemporalCore:
             The event object
         """
         try:
-            event_file_path = self.storage_path / f"{event_id}.json"
-            with open(event_file_path, 'r') as f:
-                event_data = json.load(f)
-            return event_data
+            if self.db_enabled:
+                async with async_session() as session:
+                    query = select(Event).where(Event.id == event_id)
+                    result = await session.execute(query)
+                    db_event = result.scalars().first()
+                    
+                    if db_event:
+                        return {
+                            "id": db_event.id,
+                            "timestamp": db_event.timestamp.isoformat(),
+                            "type": db_event.type,
+                            "data": db_event.data
+                        }
+                    else:
+                        raise ValueError(f"Event with ID {event_id} not found")
+            else:
+                # File-based retrieval
+                event_file_path = self.storage_path / f"{event_id}.json"
+                with open(event_file_path, 'r') as f:
+                    event_data = json.load(f)
+                return event_data
         except Exception as e:
             logger.error(f"Failed to get event by ID: {str(e)}")
             raise

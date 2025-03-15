@@ -10,6 +10,15 @@ uvicorn==0.24.0
 jinja2==3.1.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
+python-multipart==0.0.6  # For form handling in FastAPI
+
+# Database dependencies
+sqlalchemy==2.0.23
+aiosqlite==0.19.0
+alembic==1.12.1
+
+# Configuration management
+dynaconf==3.2.3
 
 # Optional AI provider dependencies
 # Uncomment as needed

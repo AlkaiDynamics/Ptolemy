@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PTOLEMY{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@1.8.6"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/celestial.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-deep-space text-white min-h-screen">
+    <header class="border-b border-celestial-blue/30 bg-deep-space/80 backdrop-blur-sm sticky top-0 z-10">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="celestial-icon w-8 h-8"></div>
+                <h1 class="text-2xl font-bold text-celestial-blue">PTOLEMY</h1>
+            </div>
+            <nav>
+                <ul class="flex space-x-6">
+                    <li><a href="/" class="hover:text-celestial-blue">Home</a></li>
+                    <li><a href="/projects" class="hover:text-celestial-blue">Projects</a></li>
+                    <li><a href="/generate" class="hover:text-celestial-blue">Generate</a></li>
+                    <li><a href="/analysis/timeline" class="hover:text-celestial-blue">Timeline</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    
+    <main class="container mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer class="border-t border-celestial-blue/30 py-6 bg-deep-space/80">
+        <div class="container mx-auto px-4 text-center text-gray-400">
+            <p>PTOLEMY AI-Accelerated Development System</p>
+        </div>
+    </footer>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

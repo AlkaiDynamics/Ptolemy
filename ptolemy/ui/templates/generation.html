@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}PTOLEMY - Generate{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+        <h2 class="text-2xl font-bold mb-4 text-celestial-blue">What would you like to build today?</h2>
+        
+        <form id="generation-form" hx-post="/generate/api/completion" hx-target="#result-container" hx-indicator="#loading">
+            <div class="space-y-4">
+                <div>
+                    <textarea 
+                        name="prompt" 
+                        id="prompt" 
+                        rows="4" 
+                        class="w-full p-3 bg-deep-space/70 border border-celestial-blue/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-celestial-blue"
+                        placeholder="Describe your requirements..."></textarea>
+                </div>
+                
+                <div class="flex space-x-4 items-center">
+                    <div class="flex-1">
+                        <label for="model_type" class="block text-sm text-gray-300 mb-1">Model Type</label>
+                        <select 
+                            name="model_type" 
+                            id="model_type" 
+                            class="w-full p-2 bg-deep-space/70 border border-celestial-blue/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-celestial-blue">
+                            <option value="architect">Architect</option>
+                            <option value="implementer" selected>Implementer</option>
+                            <option value="reviewer">Reviewer</option>
+                            <option value="integrator">Integrator</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex-1 flex items-end">
+                        <button 
+                            type="submit" 
+                            class="w-full py-2 px-4 bg-celestial-blue hover:bg-celestial-blue/80 rounded-lg transition">
+                            Generate
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <div id="loading" class="htmx-indicator flex justify-center my-8">
+        <div class="celestial-loader">
+            <div class="orbit"></div>
+            <div class="planet"></div>
+        </div>
+    </div>
+    
+    <div id="result-container" class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30 hidden">
+        <h3 class="text-xl font-bold mb-4 text-celestial-blue">Generated Output</h3>
+        <pre id="result" class="whitespace-pre-wrap bg-black/30 p-4 rounded border border-celestial-blue/20 overflow-x-auto"></pre>
+        
+        <div class="mt-4 flex space-x-4">
+            <button 
+                id="copy-btn" 
+                class="py-2 px-4 bg-deep-space hover:bg-deep-space/80 rounded-lg transition border border-celestial-blue/30"
+                onclick="copyToClipboard()">
+                Copy to Clipboard
+            </button>
+            
+            <button 
+                class="py-2 px-4 bg-deep-space hover:bg-deep-space/80 rounded-lg transition border border-celestial-blue/30"
+                hx-post="/analysis/feedback/api/record" 
+                hx-vals='{"feedback_type": "user_experience", "content": "Generated content was useful", "source": "web_ui"}'>
+                👍 Helpful
+            </button>
+            
+            <button 
+                class="py-2 px-4 bg-deep-space hover:bg-deep-space/80 rounded-lg transition border border-celestial-blue/30"
+                hx-post="/analysis/feedback/api/record" 
+                hx-vals='{"feedback_type": "user_experience", "content": "Generated content needs improvement", "source": "web_ui"}'>
+                👎 Needs Improvement
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.body.addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.target.id === 'result-container') {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            if (data.success) {
+                document.getElementById('result-container').classList.remove('hidden');
+                document.getElementById('result').textContent = data.result;
+            } else {
+                alert('Error: ' + data.error);
+            }
+        }
+    });
+    
+    function copyToClipboard() {
+        const resultText = document.getElementById('result').textContent;
+        navigator.clipboard.writeText(resultText).then(function() {
+            const copyBtn = document.getElementById('copy-btn');
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
+        });
+    }
+</script>
+{% endblock %}

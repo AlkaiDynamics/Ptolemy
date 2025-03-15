@@ -1,0 +1,41 @@
+# PTOLEMY Settings File
+# This file contains configuration settings for the PTOLEMY project
+# Environment-specific settings can be defined in [dev], [test], and [prod] sections
+
+[default]
+# Default settings for all environments
+DEFAULT_PROVIDER = "openai"
+LOG_LEVEL = "INFO"
+
+# Database settings
+DATABASE_URL = "sqlite+aiosqlite:///data/ptolemy.db"
+
+# Model prompts
+ARCHITECT_PROMPT = "You are an expert software architect specialized in designing scalable, maintainable systems."
+IMPLEMENTER_PROMPT = "You are an expert software developer with deep knowledge of best practices and patterns."
+REVIEWER_PROMPT = "You are an expert code reviewer focused on code quality, security, and performance."
+INTEGRATOR_PROMPT = "You are an integration specialist who excels at connecting different components and systems."
+
+# Model temperatures
+ARCHITECT_TEMPERATURE = 0.3
+IMPLEMENTER_TEMPERATURE = 0.2
+REVIEWER_TEMPERATURE = 0.3
+INTEGRATOR_TEMPERATURE = 0.4
+
+# Retry settings
+MAX_RETRIES = 3
+BASE_DELAY = 1
+BACKOFF_FACTOR = 2
+JITTER = 0.1
+
+[dev]
+# Development environment settings
+LOG_LEVEL = "DEBUG"
+
+[test]
+# Test environment settings
+DATABASE_URL = "sqlite+aiosqlite:///data/test_ptolemy.db"
+
+[prod]
+# Production environment settings
+LOG_LEVEL = "WARNING"

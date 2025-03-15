@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}PTOLEMY - Analysis{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-celestial-blue">Feedback Analysis</h2>
+        <div class="flex space-x-3">
+            <button 
+                class="py-2 px-4 bg-celestial-blue hover:bg-celestial-blue/80 rounded-lg transition"
+                onclick="window.location.href='/analysis/timeline'">
+                View Timeline
+            </button>
+        </div>
+    </div>
+    
+    <!-- Feedback Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Feedback Summary</h3>
+            <div class="space-y-2">
+                <div class="flex justify-between">
+                    <span>Total Feedback</span>
+                    <span class="font-semibold">{{ feedback_count }}</span>
+                </div>
+                {% for type, events in feedback_by_type.items() %}
+                <div class="flex justify-between">
+                    <span>{{ type }}</span>
+                    <span class="font-semibold">{{ events|length }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Sentiment Analysis</h3>
+            <div class="space-y-4">
+                <div class="relative pt-1">
+                    <div class="flex mb-2 items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full bg-celestial-blue/20">
+                                Positive
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-semibold inline-block">
+                                {% if feedback_count > 0 %}
+                                    {% set positive_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'useful')|list|length %}
+                                    {% set positive_percent = (positive_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                                    {{ "%.1f"|format(positive_percent) }}%
+                                {% else %}
+                                    0%
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-deep-space/70">
+                        {% if feedback_count > 0 %}
+                            {% set positive_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'useful')|list|length %}
+                            {% set positive_percent = (positive_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                            <div class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-celestial-blue" style="width: {{ positive_percent }}%;"></div>
+                        {% else %}
+                            <div class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-celestial-blue" style="width: 0%;"></div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="relative pt-1">
+                    <div class="flex mb-2 items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full bg-nebula-purple/20">
+                                Needs Improvement
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-semibold inline-block">
+                                {% if feedback_count > 0 %}
+                                    {% set negative_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'improvement')|list|length %}
+                                    {% set negative_percent = (negative_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                                    {{ "%.1f"|format(negative_percent) }}%
+                                {% else %}
+                                    0%
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-deep-space/70">
+                        {% if feedback_count > 0 %}
+                            {% set negative_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'improvement')|list|length %}
+                            {% set negative_percent = (negative_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                            <div class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-nebula-purple" style="width: {{ negative_percent }}%;"></div>
+                        {% else %}
+                            <div class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-nebula-purple" style="width: 0%;"></div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-deep-space/50 backdrop-blur-sm p-6 rounded-lg border border-celestial-blue/30">
+            <h3 class="text-xl font-bold mb-4 text-celestial-blue">Feedback Trends</h3>
+            <div class="text-gray-300">
+                {% if feedback_count > 0 %}
+                    {% set positive_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'useful')|list|length %}
+                    {% set negative_count = feedback_by_type.get('user_experience', [])|selectattr('data.content', 'search', 'improvement')|list|length %}
+                    {% set positive_percent = (positive_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                    {% set negative_percent = (negative_count / feedback_count * 100) if feedback_count > 0 else 0 %}
+                    <p>Recent feedback suggests users are finding the system {{ 'helpful' if positive_percent > negative_percent else 'in need of improvements' }}.</p>
+                    <p class="mt-2 text-sm">Detailed trend analysis will be available as more feedback is collected.</p>
+                {% else %}
+                    <p>No feedback collected yet.</p>
+                    <p class="mt-2 text-sm">Feedback trends will be displayed as users provide feedback on generated content.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Feedback -->
+    <div>
+        <h3 class="text-xl font-bold mb-4 text-celestial-blue">Recent Feedback</h3>
+        
+        <div class="space-y-4">
+            {% for type, events in feedback_by_type.items() %}
+                {% for event in events[:5] %}
+                <div class="bg-deep-space/50 backdrop-blur-sm p-4 rounded-lg border border-celestial-blue/30">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="inline-block px-2 py-1 text-xs rounded-full bg-celestial-blue/20 text-celestial-blue">{{ type }}</span>
+                            <p class="mt-2">{{ event.data.content }}</p>
+                        </div>
+                        <span class="text-sm text-gray-400">{{ event.timestamp }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% endfor %}
+            
+            {% if feedback_count == 0 %}
+            <div class="bg-deep-space/50 backdrop-blur-sm p-4 rounded-lg border border-celestial-blue/30">
+                <p class="text-gray-300">No feedback recorded yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

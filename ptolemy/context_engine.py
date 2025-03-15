@@ -3,10 +3,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
+from sqlalchemy import select, and_
 
 from loguru import logger
 from ptolemy.config import CONTEXT_DIR
 from ptolemy.temporal_core import TemporalCore
+from ptolemy.database import async_session, Relationship, Pattern, Insight
 
 
 class ContextEngine:
@@ -21,6 +23,7 @@ class ContextEngine:
         self.relationships_path = self.storage_path / "relationships"
         self.patterns_path = self.storage_path / "patterns"
         self.insights_path = self.storage_path / "insights"
+        self.db_enabled = True
     
     async def initialize(self):
         """Initialize the Context Engine system."""
@@ -64,9 +67,24 @@ class ContextEngine:
         }
         
         try:
+            # Store in file system for backward compatibility
             relationship_file_path = self.relationships_path / f"{relationship['id']}.json"
             with open(relationship_file_path, 'w') as f:
                 json.dump(relationship, f, indent=2)
+            
+            # Store in database if enabled
+            if self.db_enabled:
+                async with async_session() as session:
+                    db_relationship = Relationship(
+                        id=relationship["id"],
+                        source_entity=source_entity,
+                        target_entity=target_entity,
+                        relationship_type=relationship_type,
+                        meta_data=metadata,
+                        timestamp=datetime.fromisoformat(relationship["timestamp"])
+                    )
+                    session.add(db_relationship)
+                    await session.commit()
             
             # Record this as an event in the temporal core
             await self.temporal_core.record_event("relationship_created", {
@@ -112,9 +130,24 @@ class ContextEngine:
         }
         
         try:
+            # Store in file system for backward compatibility
             pattern_file_path = self.patterns_path / f"{pattern['id']}.json"
             with open(pattern_file_path, 'w') as f:
                 json.dump(pattern, f, indent=2)
+            
+            # Store in database if enabled
+            if self.db_enabled:
+                async with async_session() as session:
+                    db_pattern = Pattern(
+                        id=pattern["id"],
+                        name=pattern_name,
+                        type=pattern_type,
+                        implementation=implementation,
+                        meta_data=metadata,
+                        timestamp=datetime.fromisoformat(pattern["timestamp"])
+                    )
+                    session.add(db_pattern)
+                    await session.commit()
             
             # Record this as an event in the temporal core
             await self.temporal_core.record_event("pattern_stored", {
@@ -159,9 +192,24 @@ class ContextEngine:
         }
         
         try:
+            # Store in file system for backward compatibility
             insight_file_path = self.insights_path / f"{insight['id']}.json"
             with open(insight_file_path, 'w') as f:
                 json.dump(insight, f, indent=2)
+            
+            # Store in database if enabled
+            if self.db_enabled:
+                async with async_session() as session:
+                    db_insight = Insight(
+                        id=insight["id"],
+                        type=insight_type,
+                        content=content,
+                        relevance=relevance,
+                        meta_data=metadata,
+                        timestamp=datetime.fromisoformat(insight["timestamp"])
+                    )
+                    session.add(db_insight)
+                    await session.commit()
             
             # Record this as an event in the temporal core
             await self.temporal_core.record_event("insight_stored", {
@@ -188,22 +236,58 @@ class ContextEngine:
         """
         filters = filters or {}
         try:
-            relationships = []
-            for relationship_file in self.relationships_path.glob("*.json"):
-                with open(relationship_file, 'r') as f:
-                    relationship_data = json.load(f)
+            if self.db_enabled:
+                # Use database query with SQLAlchemy
+                async with async_session() as session:
+                    query = select(Relationship)
+                    
+                    # Apply filters
+                    filter_conditions = []
+                    for key, value in filters.items():
+                        if hasattr(Relationship, key):
+                            filter_conditions.append(getattr(Relationship, key) == value)
+                    
+                    if filter_conditions:
+                        query = query.where(and_(*filter_conditions))
+                    
+                    # Order by timestamp
+                    query = query.order_by(Relationship.timestamp)
+                    
+                    result = await session.execute(query)
+                    db_relationships = result.scalars().all()
+                    
+                    # Convert to dict format for API consistency
+                    relationships = []
+                    for db_rel in db_relationships:
+                        relationships.append({
+                            "id": db_rel.id,
+                            "source_entity": db_rel.source_entity,
+                            "target_entity": db_rel.target_entity,
+                            "relationship_type": db_rel.relationship_type,
+                            "meta_data": db_rel.meta_data,
+                            "timestamp": db_rel.timestamp.isoformat()
+                        })
+                    
+                    return relationships
+            else:
+                # Fall back to file-based retrieval
+                relationships = []
+                for relationship_file in self.relationships_path.glob("*.json"):
+                    with open(relationship_file, 'r') as f:
+                        relationship_data = json.load(f)
+                    
+                    # Apply filters if any
+                    include_relationship = True
+                    for key, value in filters.items():
+                        if relationship_data.get(key) != value:
+                            include_relationship = False
+                            break
+                    
+                    if include_relationship:
+                        relationships.append(relationship_data)
                 
-                # Apply filters if any
-                include_relationship = True
-                for key, value in filters.items():
-                    if relationship_data.get(key) != value:
-                        include_relationship = False
-                        break
-                
-                if include_relationship:
-                    relationships.append(relationship_data)
-            
-            return relationships
+                # Sort by timestamp
+                return sorted(relationships, key=lambda x: x["timestamp"])
         except Exception as e:
             logger.error(f"Failed to get relationships: {str(e)}")
             raise
@@ -220,22 +304,58 @@ class ContextEngine:
         """
         filters = filters or {}
         try:
-            patterns = []
-            for pattern_file in self.patterns_path.glob("*.json"):
-                with open(pattern_file, 'r') as f:
-                    pattern_data = json.load(f)
+            if self.db_enabled:
+                # Use database query with SQLAlchemy
+                async with async_session() as session:
+                    query = select(Pattern)
+                    
+                    # Apply filters
+                    filter_conditions = []
+                    for key, value in filters.items():
+                        if hasattr(Pattern, key):
+                            filter_conditions.append(getattr(Pattern, key) == value)
+                    
+                    if filter_conditions:
+                        query = query.where(and_(*filter_conditions))
+                    
+                    # Order by timestamp
+                    query = query.order_by(Pattern.timestamp)
+                    
+                    result = await session.execute(query)
+                    db_patterns = result.scalars().all()
+                    
+                    # Convert to dict format for API consistency
+                    patterns = []
+                    for db_pattern in db_patterns:
+                        patterns.append({
+                            "id": db_pattern.id,
+                            "name": db_pattern.name,
+                            "type": db_pattern.type,
+                            "implementation": db_pattern.implementation,
+                            "meta_data": db_pattern.meta_data,
+                            "timestamp": db_pattern.timestamp.isoformat()
+                        })
+                    
+                    return patterns
+            else:
+                # Fall back to file-based retrieval
+                patterns = []
+                for pattern_file in self.patterns_path.glob("*.json"):
+                    with open(pattern_file, 'r') as f:
+                        pattern_data = json.load(f)
+                    
+                    # Apply filters if any
+                    include_pattern = True
+                    for key, value in filters.items():
+                        if pattern_data.get(key) != value:
+                            include_pattern = False
+                            break
+                    
+                    if include_pattern:
+                        patterns.append(pattern_data)
                 
-                # Apply filters if any
-                include_pattern = True
-                for key, value in filters.items():
-                    if pattern_data.get(key) != value:
-                        include_pattern = False
-                        break
-                
-                if include_pattern:
-                    patterns.append(pattern_data)
-            
-            return patterns
+                # Sort by timestamp
+                return sorted(patterns, key=lambda x: x["timestamp"])
         except Exception as e:
             logger.error(f"Failed to get patterns: {str(e)}")
             raise
@@ -248,59 +368,82 @@ class ContextEngine:
             filters: Optional filters to apply
             
         Returns:
-            A list of insights matching the filters, sorted by relevance
+            A list of insights matching the filters
         """
         filters = filters or {}
         try:
-            insights = []
-            for insight_file in self.insights_path.glob("*.json"):
-                with open(insight_file, 'r') as f:
-                    insight_data = json.load(f)
+            if self.db_enabled:
+                # Use database query with SQLAlchemy
+                async with async_session() as session:
+                    query = select(Insight)
+                    
+                    # Apply filters
+                    filter_conditions = []
+                    for key, value in filters.items():
+                        if hasattr(Insight, key):
+                            filter_conditions.append(getattr(Insight, key) == value)
+                    
+                    if filter_conditions:
+                        query = query.where(and_(*filter_conditions))
+                    
+                    # Order by timestamp and relevance
+                    query = query.order_by(Insight.relevance.desc(), Insight.timestamp.desc())
+                    
+                    result = await session.execute(query)
+                    db_insights = result.scalars().all()
+                    
+                    # Convert to dict format for API consistency
+                    insights = []
+                    for db_insight in db_insights:
+                        insights.append({
+                            "id": db_insight.id,
+                            "type": db_insight.type,
+                            "content": db_insight.content,
+                            "relevance": db_insight.relevance,
+                            "meta_data": db_insight.meta_data,
+                            "timestamp": db_insight.timestamp.isoformat()
+                        })
+                    
+                    return insights
+            else:
+                # Fall back to file-based retrieval
+                insights = []
+                for insight_file in self.insights_path.glob("*.json"):
+                    with open(insight_file, 'r') as f:
+                        insight_data = json.load(f)
+                    
+                    # Apply filters if any
+                    include_insight = True
+                    for key, value in filters.items():
+                        if insight_data.get(key) != value:
+                            include_insight = False
+                            break
+                    
+                    if include_insight:
+                        insights.append(insight_data)
                 
-                # Apply filters if any
-                include_insight = True
-                for key, value in filters.items():
-                    if insight_data.get(key) != value:
-                        include_insight = False
-                        break
-                
-                if include_insight:
-                    insights.append(insight_data)
-            
-            # Sort by relevance (highest first)
-            return sorted(insights, key=lambda x: x["relevance"], reverse=True)
+                # Sort by relevance and timestamp
+                return sorted(insights, key=lambda x: (-x.get("relevance", 0), x["timestamp"]), reverse=True)
         except Exception as e:
             logger.error(f"Failed to get insights: {str(e)}")
             raise
     
     async def get_model_context(self, task: str) -> str:
         """
-        Build context for AI models based on the task.
+        Generate context for a model based on the task.
         
         Args:
             task: The task description
             
         Returns:
-            A formatted context string
+            Context information for the model
         """
-        # Get relevant insights and patterns
-        insights = await self.get_insights()
+        # Get relevant patterns
         patterns = await self.get_patterns()
+        pattern_context = "\n".join([f"PATTERN: {p['name']} - {p['implementation'][:100]}..." for p in patterns[:3]])
         
-        # Build context string
-        context_string = "# Project Context\n\n"
+        # Get relevant insights
+        insights = await self.get_insights()
+        insight_context = "\n".join([f"INSIGHT: {i['content'][:150]}..." for i in insights[:3]])
         
-        # Add insights
-        if insights:
-            context_string += "## Insights\n\n"
-            for insight in insights[:5]:  # Top 5 insights by relevance
-                context_string += f"- {insight['content']} ({insight['type']}, relevance: {insight['relevance']})\n"
-            context_string += "\n"
-        
-        # Add patterns
-        if patterns:
-            context_string += "## Implementation Patterns\n\n"
-            for pattern in patterns[:3]:  # Top 3 patterns
-                context_string += f"### {pattern['name']} ({pattern['type']})\n\n```\n{pattern['implementation']}\n```\n\n"
-        
-        return context_string
+        return f"CONTEXT:\n{pattern_context}\n\n{insight_context}"

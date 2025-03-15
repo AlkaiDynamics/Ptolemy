@@ -1,0 +1,9 @@
+{
+  "id": "9c5c9056-1252-426f-b658-fa743d014f41",
+  "timestamp": "2025-03-15T05:40:25.275221",
+  "type": "project_initialized",
+  "data": {
+    "name": "Test Project",
+    "description": "Integration test"
+  }
+}
