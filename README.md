@@ -25,9 +25,12 @@ ptolemy/
 │   ├── __init__.py     # Package initialization
 │   ├── config.py       # Configuration module
 │   ├── context_engine.py # Context engine components
+│   ├── database.py     # Database models and operations
 │   ├── feedback.py     # Feedback orchestrator
 │   ├── multi_model.py  # Multi-model processor
-│   └── temporal_core.py # Temporal core components
+│   ├── temporal_core.py # Temporal core components
+│   ├── ui/             # Web UI components
+│   └── utils.py        # Utility functions
 ├── templates/          # Template files
 ├── tests/              # Test files
 ├── venv/               # Virtual environment
@@ -103,6 +106,27 @@ python cli.py analyze
 - Analysis of user-driven changes
 - Continuous adjustment of AI-generation quality
 - Adaptive responses to project needs and user preferences
+
+## Key Components
+
+### Temporal Core
+Manages event recording, retrieval, and temporal analysis of development activities.
+
+### Context Engine
+Maintains contextual understanding of the project, including patterns, relationships, and insights.
+
+### Multi-Model Processor
+Orchestrates AI model interactions, delegating tasks to specialized models and integrating their outputs.
+
+### Database Integration
+Uses SQLAlchemy with SQLite for persistent storage of events, relationships, patterns, and insights.
+
+## Testing
+
+Run tests with pytest:
+```bash
+pytest tests/
+```
 
 ## License
 
