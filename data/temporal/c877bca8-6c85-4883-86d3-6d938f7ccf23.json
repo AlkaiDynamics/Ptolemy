@@ -1,0 +1,14 @@
+{
+  "id": "c877bca8-6c85-4883-86d3-6d938f7ccf23",
+  "timestamp": "2025-03-15T03:34:46.155431",
+  "type": "feedback_received",
+  "data": {
+    "feedback_type": "test_feedback",
+    "content": "This is test feedback",
+    "source": "test",
+    "target_id": null,
+    "metadata": {
+      "sentiment": "positive"
+    }
+  }
+}

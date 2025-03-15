@@ -1,0 +1,10 @@
+{
+  "id": "12b4a7ec-aff9-45d7-986a-1d3238ef4051",
+  "timestamp": "2025-03-15T03:44:50.489319",
+  "type": "insight_stored",
+  "data": {
+    "insight_id": "287ace0c-7a3e-47bd-9503-4e54486f2466",
+    "insight_type": "test_insight",
+    "relevance": 0.8
+  }
+}

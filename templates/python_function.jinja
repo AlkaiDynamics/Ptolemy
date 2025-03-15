@@ -1,0 +1,34 @@
+"""
+{{ description }}
+{% if author %}
+@author: {{ author }}
+{% endif %}
+"""
+{% if imports %}
+{{ imports }}
+{% endif %}
+
+def {{ function_name }}({{ parameters }}):
+    """
+    {{ docstring }}
+    
+    {% if parameters_desc %}
+    Parameters:
+    {% for param, desc in parameters_desc.items() %}
+    {{ param }}: {{ desc }}
+    {% endfor %}
+    {% endif %}
+    
+    {% if returns %}
+    Returns:
+    {{ returns }}
+    {% endif %}
+    
+    {% if examples %}
+    Examples:
+    {% for example in examples %}
+    {{ example }}
+    {% endfor %}
+    {% endif %}
+    """
+    {{ implementation }}

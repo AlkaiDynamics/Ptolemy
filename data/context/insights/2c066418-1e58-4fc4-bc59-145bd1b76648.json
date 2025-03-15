@@ -1,0 +1,10 @@
+{
+  "id": "2c066418-1e58-4fc4-bc59-145bd1b76648",
+  "type": "test_insight",
+  "content": "This is a test insight",
+  "relevance": 0.8,
+  "metadata": {
+    "source": "test"
+  },
+  "timestamp": "2025-03-15T03:34:46.161078"
+}
