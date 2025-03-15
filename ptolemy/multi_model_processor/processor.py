@@ -1,4 +1,3 @@
-
 import asyncio
 import time
 import uuid
@@ -9,108 +8,95 @@ from .state import ProcessorState
 from .utils.config import ConfigManager
 from .utils.error_handling import ErrorHandler, ErrorSeverity
 from .utils.imports import ComponentLoader, import_optional
+from .utils.caching import ResponseCache, generate_cache_key
+from .metrics import MetricsCollector
+from .optimizer import Optimizer
+from .dispatcher import Dispatcher
 
 
 class ProcessorEngine:
     """
-    Central orchestrator for the Multi-Model Processor.
+    Core processor engine for multi-model processing.
     
-    This class manages the processing of tasks across different language models,
-    with support for routing, optimization, and integration with the Latent
-    Reasoning Module.
+    This class is responsible for:
+    - Initializing and managing model handlers
+    - Processing tasks with appropriate models
+    - Integrating with the Latent Reasoning module
+    - Error handling and recovery
     """
-    
+
     def __init__(
-        self, 
-        latent_reasoning_engine=None,
-        context_engine=None,
-        config_path: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None
+        self,
+        config: Optional[Union[Dict[str, Any], str]] = None,
+        latent_reasoning_engine: Optional[Any] = None,
+        context_engine: Optional[Any] = None,
+        error_handler: Optional[ErrorHandler] = None
     ):
         """
         Initialize the processor engine.
         
         Args:
-            latent_reasoning_engine: Optional LatentReasoningEngine instance
-            context_engine: Optional ContextEngine instance
-            config_path: Optional path to a configuration file
-            config: Optional configuration dictionary (overrides file)
+            config: Configuration dictionary or path to config file
+            latent_reasoning_engine: Optional latent reasoning engine
+            context_engine: Optional context engine
+            error_handler: Optional error handler
         """
         # Initialize configuration
-        self.config_manager = ConfigManager(config_path)
-        if config:
-            for key, value in config.items():
-                self.config_manager.set(key, value)
-                
-        # Store engines
+        if isinstance(config, str):
+            self.config_manager = ConfigManager(config_path=config)
+        else:
+            self.config_manager = ConfigManager(config=config)
+            
+        self.config = self.config_manager.get_all()
+        
+        # Initialize error handler
+        self.error_handler = error_handler or ErrorHandler()
+        
+        # Initialize component loader
+        self.component_loader = ComponentLoader()
+        
+        # Set up external engines
         self.latent_reasoning_engine = latent_reasoning_engine
         self.context_engine = context_engine
         
-        # Initialize components
-        self.component_loader = ComponentLoader()
-        self.error_handler = ErrorHandler(self.config_manager.get("logging"))
-        self.handlers = {}
+        # Initialize model handlers
+        self.handlers: Dict[str, Any] = {}
+        self._init_handlers()
         
-        # Initialize with error handling
-        try:
-            self._initialize_components()
-            logger.info("ProcessorEngine initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing ProcessorEngine: {str(e)}")
-            # Initialize with minimal components for graceful degradation
-            self._initialize_minimal_components()
-    
-    def _initialize_components(self) -> None:
-        """Initialize all required components with full functionality."""
-        # Register model handlers
-        self._register_default_handlers()
-        
-        # Initialize optimizer if available
-        optimizer_module = import_optional(".optimizer", "ptolemy.multi_model_processor")
-        if optimizer_module:
-            self.optimizer = optimizer_module.Optimizer(self.config_manager.get("optimizer"))
-        else:
-            # Use simple optimizer as fallback
-            self.optimizer = SimpleOptimizer(self.config_manager.get("optimizer"))
-            
-        # Initialize dispatcher if available
-        dispatcher_module = import_optional(".dispatcher", "ptolemy.multi_model_processor")
-        if dispatcher_module:
-            self.dispatcher = dispatcher_module.Dispatcher(
-                handlers=self.handlers,
-                config=self.config_manager.get("dispatcher")
-            )
-        else:
-            # Use simple dispatcher as fallback
-            self.dispatcher = SimpleDispatcher(
-                handlers=self.handlers,
-                config=self.config_manager.get("dispatcher")
-            )
-            
-        # Initialize metrics if available
-        metrics_module = import_optional(".metrics", "ptolemy.multi_model_processor")
+        # Initialize metrics collector
+        metrics_module = import_optional(".metrics")
+        self.metrics = None
         if metrics_module:
-            self.metrics = metrics_module.ProcessorMetrics(
-                max_history=self.config_manager.get("metrics.max_history", 1000)
-            )
+            self.metrics = MetricsCollector(self.config.get("metrics", {}))
+        
+        # Initialize optimizer
+        optimizer_module = import_optional(".optimizer")
+        self.optimizer = None
+        if optimizer_module and hasattr(optimizer_module, "Optimizer"):
+            self.optimizer = optimizer_module.Optimizer(self.config.get("optimizer", {}))
         else:
-            # Use simple metrics as fallback
-            self.metrics = SimpleMetrics()
-    
-    def _initialize_minimal_components(self) -> None:
-        """Initialize minimal components for graceful degradation."""
-        # Register mock handler as fallback
-        self._register_mock_handler()
+            self.optimizer = Optimizer(self.config.get("optimizer", {}))
+            
+        # Initialize dispatcher
+        dispatcher_module = import_optional(".dispatcher")
+        self.dispatcher = None
+        if dispatcher_module and hasattr(dispatcher_module, "Dispatcher"):
+            self.dispatcher = dispatcher_module.Dispatcher(self.config.get("dispatcher", {}))
+        else:
+            self.dispatcher = Dispatcher(self.config.get("dispatcher", {}))
+            
+        # Initialize response cache if enabled
+        self.cache = None
+        if self.config.get("processor", {}).get("enable_caching", True):
+            cache_config = self.config.get("cache", {})
+            max_size = cache_config.get("max_size", 1000)
+            default_ttl = cache_config.get("default_ttl", 3600)
+            self.cache = ResponseCache(max_size=max_size, default_ttl=default_ttl)
         
-        # Use simple components
-        self.optimizer = SimpleOptimizer()
-        self.dispatcher = SimpleDispatcher(handlers=self.handlers)
-        self.metrics = SimpleMetrics()
-        
-        logger.info("ProcessorEngine initialized with minimal components")
-    
-    def _register_default_handlers(self) -> None:
-        """Register all configured model handlers."""
+        logger.info("ProcessorEngine initialized successfully")
+
+    def _init_handlers(self) -> None:
+        """Initialize model handlers."""
         models_config = self.config_manager.get("models", {})
         
         for model_id, model_config in models_config.items():
@@ -125,7 +111,7 @@ class ProcessorEngine:
                     severity=ErrorSeverity.WARNING
                 )
                 logger.warning(f"Failed to register handler for {model_id}: {str(e)}")
-    
+
     def _register_handler(self, model_id: str, handler_type: str, config: Dict[str, Any]) -> None:
         """
         Register a model handler.
@@ -150,7 +136,7 @@ class ProcessorEngine:
             logger.warning(f"Handler type {handler_type} not found for model {model_id}")
             # Fall back to mock handler if available
             self._register_mock_handler(model_id, config)
-    
+
     def _register_mock_handler(self, model_id: str = "mock-model", config: Optional[Dict[str, Any]] = None) -> None:
         """
         Register a mock handler for testing or as fallback.
@@ -186,16 +172,214 @@ class ProcessorEngine:
             
             self.handlers[model_id] = MinimalHandler()
             logger.warning(f"Created minimal handler as {model_id}")
-    
+
     async def process_task(
+        self,
+        task: str,
+        context: Optional[Dict[str, Any]] = None,
+        model_preference: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Process a task with the multi-model processor.
+        
+        Args:
+            task: The task to process
+            context: Optional context dictionary
+            model_preference: Optional preferred model
+            
+        Returns:
+            Processing result
+        """
+        context = context or {}
+        start_time = time.time()
+        
+        # Create processor state
+        state = ProcessorState.create(task=task, context=context)
+        
+        # Create metrics for this task if metrics collection is enabled
+        task_metrics = None
+        if self.metrics:
+            task_metrics = self.metrics.create_task_metrics(state.task_id)
+        
+        try:
+            # Start processing pipeline
+            state.advance_stage("analyzing")
+            
+            # Analyze task using optimizer if available
+            analysis = {}
+            if self.optimizer:
+                analysis = await self.optimizer.analyze_task(task, context)
+                
+            # Retrieve relevant context if context engine is available
+            auto_context = self.config.get("processor", {}).get("auto_context", True)
+            if self.context_engine and auto_context:
+                state.advance_stage("retrieving_context")
+                try:
+                    relevant_context = await self._retrieve_context(task, context)
+                    if relevant_context:
+                        context["retrieved_context"] = relevant_context
+                except Exception as e:
+                    self.error_handler.handle_error(
+                        e, 
+                        ErrorSeverity.WARNING,
+                        "Error retrieving context, continuing without it",
+                        {"task": task}
+                    )
+            
+            # Apply latent reasoning if available and enabled
+            latent_reasoning_result = None
+            use_reasoning = analysis.get("use_reasoning", True)
+            
+            if self.latent_reasoning_engine and use_reasoning:
+                state.advance_stage("reasoning")
+                try:
+                    iterations = analysis.get("reasoning_iterations", 
+                                              self.config.get("latent_reasoning", {}).get("default_iterations", 3))
+                    
+                    latent_reasoning_result = await self._apply_latent_reasoning(
+                        task, 
+                        context,
+                        iterations=iterations
+                    )
+                    
+                    # Add reasoning result to context
+                    if latent_reasoning_result:
+                        context["reasoning_result"] = latent_reasoning_result
+                except Exception as e:
+                    self.error_handler.handle_error(
+                        e, 
+                        ErrorSeverity.WARNING,
+                        "Error in latent reasoning, continuing without it",
+                        {"task": task}
+                    )
+            
+            # Select model
+            state.advance_stage("selecting_model")
+            
+            # Use model preference if provided
+            selected_model = model_preference
+            
+            # Otherwise, use optimizer to select model
+            if not selected_model and self.optimizer:
+                # Get available models
+                available_models = await self.get_available_models()
+                
+                # Select using optimizer
+                selected_model = await self.optimizer.select_optimal_model(
+                    task, 
+                    {"analysis": analysis, "context": context},
+                    available_models
+                )
+            
+            # Fall back to default if no model selected
+            if not selected_model:
+                selected_model = self.config.get("processor", {}).get("default_model", "mock-model")
+                
+            # Record selected model
+            state.select_model(selected_model)
+            
+            # Prepare parameters for model
+            parameters = {
+                "model": selected_model,
+                "context": context
+            }
+            
+            # Add any task-specific parameters
+            if "model_parameters" in context:
+                parameters.update(context["model_parameters"])
+                
+            # Try to process with cache if available
+            cached_response = None
+            if self.cache and not context.get("skip_cache", False):
+                cache_key = generate_cache_key(task, selected_model, parameters)
+                cached_response = self.cache.get(cache_key)
+                
+            if cached_response:
+                # Use cached response
+                logger.info(f"Using cached response for task {state.task_id[:8]}...")
+                response = cached_response
+                state.advance_stage("completed")
+            else:
+                # Process with selected model
+                state.advance_stage("processing")
+                response = await self._process_with_model(task, selected_model, parameters, state)
+                
+                # Cache response if caching is enabled
+                if self.cache and not context.get("skip_cache", False):
+                    cache_key = generate_cache_key(task, selected_model, parameters)
+                    self.cache.set(cache_key, response)
+                
+            # Extract and record token usage
+            if "tokens" in response:
+                state.record_token_usage(
+                    model=selected_model,
+                    prompt_tokens=response["tokens"].get("prompt", 0),
+                    completion_tokens=response["tokens"].get("completion", 0)
+                )
+                
+                # Record in metrics
+                if task_metrics:
+                    task_metrics.record_model_usage(
+                        model_id=selected_model,
+                        tokens=response["tokens"],
+                        latency=response.get("metadata", {}).get("processing_time", 0)
+                    )
+            
+            # Prepare result
+            result = {
+                "success": True,
+                "output": response.get("text", ""),
+                "model": selected_model,
+                "tokens": response.get("tokens", {}),
+                "time": time.time() - start_time,
+                "task_id": state.task_id,
+                "state": state.to_dict()
+            }
+            
+            # Complete task metrics
+            if task_metrics:
+                task_metrics.complete()
+                if self.metrics:
+                    self.metrics.task_completed(state.task_id, success=True)
+                
+            return result
+            
+        except Exception as e:
+            # Handle error and try to recover
+            error_info = self.error_handler.handle_error(
+                e, 
+                ErrorSeverity.ERROR,
+                "Error processing task",
+                {"task": task, "task_id": state.task_id}
+            )
+            
+            # Record error in state
+            state.record_error(error_info)
+            
+            # Record in metrics
+            if task_metrics:
+                task_metrics.record_error(error_info)
+                if self.metrics:
+                    self.metrics.task_completed(state.task_id, success=False)
+            
+            # Return error result
+            return {
+                "success": False,
+                "error": str(e),
+                "task_id": state.task_id,
+                "time": time.time() - start_time,
+                "state": state.to_dict()
+            }
+
+    async def process_task_stream(
         self, 
         task: str, 
         context: Optional[Dict[str, Any]] = None, 
         model_preference: Optional[str] = None, 
         options: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ):
         """
-        Process a task using the appropriate model.
+        Process a task with streaming response.
         
         Args:
             task: The task description or query
@@ -203,218 +387,242 @@ class ProcessorEngine:
             model_preference: Optional preferred model to use
             options: Optional processing options
             
-        Returns:
-            Dictionary containing the processing results
+        Yields:
+            Response chunks as they become available
         """
-        # Create state for tracking
-        state = ProcessorState.create(task=task, context=context)
+        context = context or {}
         options = options or {}
+        options["streaming"] = True
         
-        start_time = time.time()
-        result = {
-            "task_id": state.task_id,
-            "success": False,
-            "time": 0,
-            "error": None
-        }
+        # Create state and start processing
+        task_id = str(uuid.uuid4())
+        state = ProcessorState.create(task=task, context=context)
         
         try:
-            # Process the task with appropriate error handling
-            state.advance_stage("initialization")
-            
-            # Retrieve additional context if context engine is available
-            if self.context_engine and self.config_manager.get("processor.auto_context", True):
-                try:
-                    state.advance_stage("context_retrieval")
-                    retrieved_context = await self.context_engine.retrieve_context(task)
-                    if context is None:
-                        context = {}
-                    
-                    # Merge retrieved context with provided context
-                    if "retrieved" not in context:
-                        context["retrieved"] = {}
-                    context["retrieved"].update(retrieved_context)
-                    state.context = context
-                except Exception as e:
-                    self.error_handler.handle_error(
-                        e, 
-                        context={"stage": "context_retrieval", "task_id": state.task_id},
-                        severity=ErrorSeverity.WARNING
-                    )
-                    state.record_error(e, "context_retrieval", "warning")
-                    logger.warning(f"Error retrieving context: {str(e)}")
-            
-            # Analyze task and determine parameters
+            # Analyze task and get parameters
             state.advance_stage("optimization")
-            parameters = await self.optimizer.analyze_task(task, context)
+            parameters = {}
+            if self.optimizer:
+                parameters = await self.optimizer.analyze_task(task, context)
+            else:
+                parameters = {"use_reasoning": True, "reasoning_iterations": 3}
             
-            # Integrate with Latent Reasoning if available
-            reasoning_result = None
-            if self.latent_reasoning_engine and self.config_manager.get("latent_reasoning.enable", True):
+            # Override with options
+            parameters.update({k: v for k, v in options.items() if v is not None})
+            
+            # Integrate with latent reasoning if available
+            if self.latent_reasoning_engine and parameters.get("use_reasoning", True):
                 state.advance_stage("latent_reasoning")
-                try:
-                    # Use latent reasoning to enhance the task understanding
-                    reasoning_iterations = options.get(
-                        "reasoning_iterations", 
-                        self.config_manager.get("latent_reasoning.default_iterations", 3)
-                    )
-                    
-                    reasoning_result = await self.latent_reasoning_engine.process(
-                        task=task,
-                        context=context,
-                        iterations=reasoning_iterations,
-                        adaptive=self.config_manager.get("latent_reasoning.adaptive", True)
-                    )
-                    
+                reasoning_result = await self._apply_latent_reasoning(
+                    task, 
+                    context,
+                    iterations=parameters.get("reasoning_iterations", 3)
+                )
+                
+                if reasoning_result:
                     state.reasoning_output = reasoning_result.get("output")
                     state.reasoning_iterations = reasoning_result.get("iterations", 0)
-                    
-                    # Update parameters based on reasoning output
-                    if reasoning_result.get("output"):
-                        parameters["reasoning_output"] = reasoning_result["output"]
-                        
-                except Exception as e:
-                    self.error_handler.handle_error(
-                        e, 
-                        context={"stage": "latent_reasoning", "task_id": state.task_id},
-                        severity=ErrorSeverity.WARNING
-                    )
-                    state.record_error(e, "latent_reasoning", "warning")
-                    logger.warning(f"Error in latent reasoning: {str(e)}")
+                    context["reasoning_result"] = reasoning_result
+                
+                # Add reasoning info to the first chunk
+                yield {
+                    "event": "reasoning_complete",
+                    "iterations": state.reasoning_iterations,
+                    "task_id": task_id
+                }
             
             # Select model
             state.advance_stage("model_selection")
-            if model_preference and model_preference in self.handlers:
-                selected_model = model_preference
-                reason = "User preference"
-            else:
-                # Use optimizer to select the best model
-                selected_model = await self.optimizer.select_optimal_model(
-                    task=task,
-                    parameters=parameters,
-                    available_models=list(self.handlers.keys())
+            model = model_preference
+            
+            if not model and self.optimizer:
+                model = await self.optimizer.select_optimal_model(
+                    task, parameters, available_models=list(self.handlers.keys())
                 )
-                reason = "Automatic selection"
+            elif not model and self.dispatcher:
+                model = self.dispatcher.get_preferred_model(parameters.get("task_type", "general"))
                 
-            state.select_model(selected_model, reason)
+            if not model and self.handlers:
+                # Default to first registered handler
+                model = next(iter(self.handlers.keys()))
+                
+            state.selected_model = model
             
-            # Optimize prompt
-            state.advance_stage("prompt_optimization")
-            optimized_prompt = await self.optimizer.optimize_prompt(
-                task=task,
-                context=context,
-                reasoning_output=state.reasoning_output
-            )
+            # Check cache if enabled
+            if self.cache and not parameters.get("skip_cache", False):
+                cache_key = generate_cache_key(task, model, context)
+                cache_result = self.cache.get(cache_key)
+                
+                if cache_result:
+                    # Cache hit - yield the cached result as a single chunk
+                    state.advance_stage("cache_hit")
+                    state.cache_hit = True
+                    
+                    yield {
+                        "event": "cache_hit",
+                        "text": cache_result.get("text", ""),
+                        "finished": True,
+                        "model": model,
+                        "state": state.to_dict(),
+                        "tokens": cache_result.get("tokens", {})
+                    }
+                    return
             
-            # Dispatch to appropriate handler
+            # Prepare prompt
+            state.advance_stage("prompt_preparation")
+            prompt = task
+            if self.optimizer:
+                prompt = await self.optimizer.optimize_prompt(
+                    task, context, model, getattr(state, "reasoning_output", None)
+                )
+            else:
+                # Simple prompt preparation
+                prompt_parts = []
+                if context:
+                    context_str = "\n".join([f"{k}: {v}" for k, v in context.items() 
+                                            if k != "reasoning_result" and 
+                                            not isinstance(v, dict) and 
+                                            not isinstance(v, list)])
+                    prompt_parts.append(f"Context:\n{context_str}")
+                
+                reasoning_output = None
+                if "reasoning_result" in context:
+                    reasoning_output = context["reasoning_result"].get("output")
+                    if reasoning_output:
+                        prompt_parts.append(f"Reasoning:\n{reasoning_output}")
+                
+                prompt_parts.append(f"Task: {task}")
+                prompt = "\n\n".join(prompt_parts)
+                
+            # Dispatch to handler
             state.advance_stage("processing")
-            dispatch_result = await self.dispatcher.dispatch(
-                task=task,
-                model=selected_model,
-                prompt=optimized_prompt,
-                parameters=parameters
-            )
             
-            # Record result
-            state.advance_stage("completion")
-            state.response = dispatch_result
-            result.update({
-                "output": dispatch_result.get("text", ""),
-                "model": dispatch_result.get("model", selected_model),
-                "tokens": dispatch_result.get("tokens", {}),
-                "success": True,
-                "state": state.to_dict()
-            })
+            if not self.dispatcher:
+                # No dispatcher available, create a fallback
+                from .dispatcher import Dispatcher
+                self.dispatcher = Dispatcher(self.handlers)
+                
+            dispatch_result = await self.dispatcher.dispatch(task, model, prompt, parameters)
             
-            # Record metrics
-            await self._record_metrics(state, dispatch_result)
-            
+            # Check if we received a stream handler
+            if "stream_handler" in dispatch_result:
+                handler = dispatch_result["stream_handler"]
+                
+                # Start streaming
+                token_count = {"prompt": 0, "completion": 0}
+                async for chunk in handler.process_stream(prompt, parameters):
+                    # Update token count if available
+                    if "tokens" in chunk:
+                        token_count["prompt"] += chunk["tokens"].get("prompt", 0)
+                        token_count["completion"] += chunk["tokens"].get("completion", 0)
+                    
+                    # Add state information to final chunk if finished
+                    if chunk.get("finished", False):
+                        state.advance_stage("completed")
+                        
+                        # Record token usage
+                        state.record_token_usage(
+                            "processing", 
+                            token_count["prompt"],
+                            token_count["completion"]
+                        )
+                        
+                        # Include state in final chunk
+                        chunk["state"] = state.to_dict()
+                        
+                        # Cache the full result if caching is enabled
+                        if self.cache and not parameters.get("skip_cache", False):
+                            # Reconstruct the full response from all chunks
+                            cache_data = {
+                                "text": chunk.get("text", ""),
+                                "model": model,
+                                "tokens": token_count,
+                                "timestamp": time.time()
+                            }
+                            cache_key = generate_cache_key(task, model, context)
+                            self.cache.set(cache_key, cache_data)
+                    
+                    # Yield each chunk
+                    yield chunk
+            else:
+                # Not a streaming handler, yield the entire result as one chunk
+                yield {
+                    "text": dispatch_result.get("text", ""),
+                    "finished": True,
+                    "model": model,
+                    "state": state.to_dict(),
+                    "tokens": dispatch_result.get("tokens", {})
+                }
+                
         except Exception as e:
-            self.error_handler.handle_error(
-                e, 
-                context={"task_id": state.task_id, "stage": state.current_stage},
-                severity=ErrorSeverity.ERROR
-            )
-            state.record_error(e, state.current_stage, "error")
+            # Handle error
+            state.advance_stage("error", {"error": str(e)})
+            logger.error(f"Error in streaming process: {str(e)}")
             
-            result["error"] = str(e)
-            result["state"] = state.to_dict()
-            
-            # Attempt minimal processing if possible
-            try:
-                minimal_result = await self._minimal_processing(task, context)
-                result["output"] = minimal_result.get("text", f"Error: {str(e)}")
-                result["model"] = minimal_result.get("model", "fallback")
-                result["minimal_fallback"] = True
-            except Exception as fallback_error:
-                logger.error(f"Minimal processing failed: {str(fallback_error)}")
-                result["output"] = f"Unable to process task: {str(e)}"
-        finally:
-            # Calculate final timing
-            process_time = time.time() - start_time
-            result["time"] = process_time
-            
-        return result
-    
-    async def _minimal_processing(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            # Yield error response
+            yield {
+                "error": str(e),
+                "finished": True,
+                "model": state.selected_model or "unknown",
+                "state": state.to_dict()
+            }
+
+    async def _retrieve_context(self, task: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Perform minimal processing when regular processing fails.
+        Retrieve relevant context for the task.
         
         Args:
             task: The task to process
-            context: Optional context
+            context: The current context
             
         Returns:
-            Minimal processing result
+            Retrieved context
         """
-        # Find the first working handler
-        for model_id, handler in self.handlers.items():
-            try:
-                return await handler.process(
-                    prompt=f"Process this task (minimal mode): {task}",
-                    parameters={"minimal_mode": True}
-                )
-            except Exception:
-                continue
-                
-        # If all handlers fail, return a basic response
-        return {
-            "text": f"Minimal processing: {task[:50]}...",
-            "model": "text-only-fallback",
-            "tokens": {"prompt": len(task.split()), "completion": 5}
-        }
-    
-    async def _record_metrics(self, state: ProcessorState, result: Dict[str, Any]) -> None:
+        # Retrieve context using context engine
+        return await self.context_engine.retrieve_context(task, context)
+
+    async def _apply_latent_reasoning(
+        self, 
+        task: str, 
+        context: Dict[str, Any], 
+        iterations: int = 3
+    ) -> Dict[str, Any]:
         """
-        Record metrics for a processing task.
+        Apply latent reasoning to the task.
         
         Args:
-            state: The processor state
-            result: The processing result
+            task: The task to process
+            context: The current context
+            iterations: Number of reasoning iterations
+            
+        Returns:
+            Reasoning result
         """
-        # If metrics module is properly loaded, record detailed metrics
-        if hasattr(self.metrics, "record_process"):
-            try:
-                tokens = result.get("tokens", {})
-                input_tokens = tokens.get("prompt", 0)
-                output_tokens = tokens.get("completion", 0)
-                
-                await self.metrics.record_process(
-                    process_id=state.task_id,
-                    task_type=state.context.get("task_type", "unknown") if state.context else "unknown",
-                    model=result.get("model", "unknown"),
-                    tokens_in=input_tokens,
-                    tokens_out=output_tokens,
-                    process_time=state.get_total_time(),
-                    reasoning_iterations=state.reasoning_iterations,
-                    success=True
-                )
-            except Exception as e:
-                logger.error(f"Error recording metrics: {str(e)}")
-        else:
-            # Simple metrics recording
-            self.metrics.record_task(state.task_id, state.get_total_time())
-    
+        # Apply latent reasoning using latent reasoning engine
+        return await self.latent_reasoning_engine.process(task, context, iterations)
+
+    async def _process_with_model(
+        self, 
+        task: str, 
+        model: str, 
+        parameters: Dict[str, Any], 
+        state: ProcessorState
+    ) -> Dict[str, Any]:
+        """
+        Process the task with the selected model.
+        
+        Args:
+            task: The task to process
+            model: The selected model
+            parameters: Processing parameters
+            state: The processor state
+            
+        Returns:
+            Processing result
+        """
+        # Process with the selected model using dispatcher
+        return await self.dispatcher.dispatch(task, model, parameters, state)
+
     async def get_available_models(self) -> List[Dict[str, Any]]:
         """
         Get a list of available models with their capabilities.
@@ -435,7 +643,7 @@ class ProcessorEngine:
                 logger.warning(f"Error getting capabilities for {model_id}: {str(e)}")
                 
         return models
-    
+
     def get_metrics(self) -> Dict[str, Any]:
         """
         Get current processing metrics.
@@ -444,216 +652,3 @@ class ProcessorEngine:
             Dictionary of metrics
         """
         return self.metrics.get_metrics() if hasattr(self.metrics, "get_metrics") else {}
-
-
-class SimpleOptimizer:
-    """Simple optimizer for use when the full optimizer is not available."""
-    
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize the simple optimizer."""
-        self.config = config or {}
-        
-    async def analyze_task(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Analyze task complexity and determine optimal processing parameters.
-        
-        Args:
-            task: Task description
-            context: Optional context information
-            
-        Returns:
-            Dictionary of optimal parameters
-        """
-        # Simple estimation based on task length
-        words = len(task.split())
-        
-        return {
-            "complexity": "medium" if words > 50 else "low",
-            "estimated_tokens": words * 2,  # Simple estimation
-            "use_reasoning": words > 100,  # Use reasoning for complex tasks
-            "reasoning_iterations": 3
-        }
-        
-    async def optimize_prompt(
-        self, 
-        task: str, 
-        context: Optional[Dict[str, Any]] = None, 
-        reasoning_output: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """
-        Optimize the prompt based on task and context.
-        
-        Args:
-            task: Task description
-            context: Context information
-            reasoning_output: Optional output from latent reasoning
-            
-        Returns:
-            Optimized prompt
-        """
-        prompt_parts = [f"Task: {task}"]
-        
-        # Add context if available
-        if context:
-            context_str = "\nContext:"
-            
-            if "retrieved" in context:
-                retrieved = context["retrieved"]
-                
-                if "relationships" in retrieved and retrieved["relationships"]:
-                    context_str += "\nRelationships:"
-                    for rel in retrieved["relationships"][:3]:  # Limit to top 3
-                        context_str += f"\n- {rel.get('name', 'Unnamed')}"
-                        
-                if "patterns" in retrieved and retrieved["patterns"]:
-                    context_str += "\nPatterns:"
-                    for pattern in retrieved["patterns"][:3]:  # Limit to top 3
-                        context_str += f"\n- {pattern.get('name', 'Unnamed')}"
-            
-            prompt_parts.append(context_str)
-        
-        # Add reasoning output if available
-        if reasoning_output:
-            reasoning_str = "\nReasoning:"
-            
-            if isinstance(reasoning_output, dict):
-                for key, value in reasoning_output.items():
-                    if isinstance(value, str):
-                        reasoning_str += f"\n{key}: {value}"
-            elif isinstance(reasoning_output, str):
-                reasoning_str += f"\n{reasoning_output}"
-                
-            prompt_parts.append(reasoning_str)
-        
-        # Add final instruction
-        prompt_parts.append("\nPlease process this task thoroughly and provide a clear response.")
-        
-        return "\n".join(prompt_parts)
-        
-    async def select_optimal_model(
-        self, 
-        task: str, 
-        parameters: Dict[str, Any], 
-        available_models: Optional[List[str]] = None
-    ) -> str:
-        """
-        Select the optimal model based on task requirements.
-        
-        Args:
-            task: Task description
-            parameters: Task parameters
-            available_models: Available models to choose from
-            
-        Returns:
-            Selected model identifier
-        """
-        if not available_models:
-            return "mock-model"  # Default fallback
-            
-        # Simple selection - just take the first available model
-        # In a real implementation, this would consider task type, complexity, etc.
-        return available_models[0]
-
-
-class SimpleDispatcher:
-    """Simple dispatcher for use when the full dispatcher is not available."""
-    
-    def __init__(self, handlers: Dict[str, Any], config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize the simple dispatcher.
-        
-        Args:
-            handlers: Dictionary of model handlers
-            config: Optional configuration
-        """
-        self.handlers = handlers
-        self.config = config or {}
-        self.default_model = self.config.get("default_model", "mock-model")
-        
-    async def dispatch(
-        self, 
-        task: str, 
-        model: str, 
-        prompt: str, 
-        parameters: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Dispatch a task to the appropriate handler.
-        
-        Args:
-            task: Original task
-            model: Selected model identifier
-            prompt: Optimized prompt
-            parameters: Processing parameters
-            
-        Returns:
-            Processing result
-        """
-        parameters = parameters or {}
-        
-        # Get the handler for the selected model
-        handler = self.handlers.get(model)
-        
-        # If handler not found, use default model
-        if not handler and self.default_model in self.handlers:
-            handler = self.handlers[self.default_model]
-            model = self.default_model
-            
-        # If still no handler, raise error
-        if not handler:
-            raise ValueError(f"No handler available for model {model} and no default handler")
-            
-        # Process with the handler
-        try:
-            result = await handler.process(prompt, parameters)
-            return result
-        except Exception as e:
-            logger.error(f"Error in model handler {model}: {str(e)}")
-            
-            # Try fallback if available
-            if model != self.default_model and self.default_model in self.handlers:
-                logger.info(f"Trying fallback model {self.default_model}")
-                return await self.handlers[self.default_model].process(prompt, parameters)
-            
-            # Re-raise if no fallback available
-            raise
-
-
-class SimpleMetrics:
-    """Simple metrics collector for use when the full metrics module is not available."""
-    
-    def __init__(self):
-        """Initialize the simple metrics collector."""
-        self.tasks = {}
-        self.total_tasks = 0
-        self.total_time = 0.0
-        
-    def record_task(self, task_id: str, process_time: float) -> None:
-        """
-        Record a task processing.
-        
-        Args:
-            task_id: Task identifier
-            process_time: Processing time in seconds
-        """
-        self.tasks[task_id] = {
-            "time": process_time,
-            "timestamp": time.time()
-        }
-        
-        self.total_tasks += 1
-        self.total_time += process_time
-        
-    def get_metrics(self) -> Dict[str, Any]:
-        """
-        Get current metrics.
-        
-        Returns:
-            Dictionary of simple metrics
-        """
-        return {
-            "total_tasks": self.total_tasks,
-            "total_time": self.total_time,
-            "avg_time": self.total_time / max(1, self.total_tasks),
-            "recent_tasks": len([t for t in self.tasks.values() if time.time() - t.get("timestamp", 0) < 3600])
-        }
