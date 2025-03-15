@@ -1,186 +1,246 @@
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
-import time
-import copy
-import uuid
+"""
+State management for the Multi-Model Processor.
 
-@dataclass
+This module defines the state tracking objects used by the 
+Multi-Model Processor to maintain context between processing
+stages and track performance metrics.
+"""
+
+import uuid
+import time
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
+from loguru import logger
+
 class ProcessorState:
     """
-    Tracks the state of a task through the multi-model processing pipeline.
-    This class provides transparency into the processing stages, model selection,
-    and performance metrics throughout the lifecycle of a task.
+    Tracks the state of a task through the processing pipeline.
+    
+    This class maintains the core state elements for a task
+    as it passes through the processor, as well as collecting
+    performance metrics and handling error conditions.
     """
     
-    # Core state elements
-    task_id: str
-    task: str
-    context: Optional[Dict[str, Any]] = None
-    
-    # Processing stage tracking
-    current_stage: str = "initialized"
-    stage_history: List[Dict[str, Any]] = field(default_factory=list)
-    
-    # Model selection info
-    selected_model: Optional[str] = None
-    model_candidates: List[Dict[str, Any]] = field(default_factory=list)
-    
-    # Reasoning integration
-    reasoning_output: Optional[Dict[str, Any]] = None
-    reasoning_iterations: int = 0
-    
-    # Performance tracking
-    start_time: float = field(default_factory=time.time)
-    stage_timings: Dict[str, float] = field(default_factory=dict)
-    token_usage: Dict[str, int] = field(default_factory=dict)
-    
-    # Final output
-    response: Optional[Dict[str, Any]] = None
-    
-    # Error tracking
-    errors: List[Dict[str, Any]] = field(default_factory=list)
+    def __init__(
+        self, 
+        task_id: str,
+        task: str,
+        context: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Initialize a new processor state.
+        
+        Args:
+            task_id: Unique identifier for the task
+            task: The task text
+            context: Optional context dictionary
+        """
+        if not task or not isinstance(task, str):
+            raise ValueError("Task must be a non-empty string")
+            
+        if not task_id or not isinstance(task_id, str):
+            raise ValueError("Task ID must be a non-empty string")
+            
+        # Core task information
+        self.task_id = task_id
+        self.task = task
+        self.context = context or {}
+        
+        # Stage tracking
+        self.current_stage = "created"
+        self.stage_history = [("created", time.time())]
+        
+        # Processing metadata
+        self.start_time = time.time()
+        self.end_time = None
+        self.processing_time = None
+        self.expiry_time = None
+        
+        # Result data
+        self.output = None
+        self.error = None
+        self.model_used = None
+        self.cached = False
+        
+        # Performance metrics
+        self.metrics = {
+            "reasoning_time": None,
+            "model_selection_time": None,
+            "processing_time": None,
+            "tokens_input": 0,
+            "tokens_output": 0
+        }
+        
+        # Reasoning tracking
+        self.reasoning = []
+        self.reasoning_iterations = 0
+        
+        # Streaming state
+        self.streaming = False
+        self.stream_chunks = []
+        
+        logger.debug(f"Created new processor state for task {task_id}")
     
     @classmethod
     def create(cls, task: str, context: Optional[Dict[str, Any]] = None) -> 'ProcessorState':
         """
-        Factory method to create a new ProcessorState with a generated UUID.
+        Create a new processor state with a generated UUID.
         
         Args:
-            task: The task description or query
-            context: Optional context information
+            task: The task to process
+            context: Optional context for the task
             
         Returns:
-            A new ProcessorState instance
+            New processor state instance
         """
+        if not task or not isinstance(task, str):
+            raise ValueError("Task must be a non-empty string")
+            
+        task_id = str(uuid.uuid4())
         return cls(
-            task_id=str(uuid.uuid4()),
+            task_id=task_id,
             task=task,
             context=context
         )
     
-    def advance_stage(self, new_stage: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def set_stage(self, stage: str) -> None:
         """
-        Advance to a new processing stage and record timing information.
+        Update the current processing stage.
         
         Args:
-            new_stage: Name of the new stage
-            metadata: Optional metadata about the stage transition
+            stage: New stage name
         """
-        now = time.time()
-        
-        # Record timing for the previous stage
-        if self.current_stage != "initialized":
-            elapsed = now - self.stage_timings.get(f"{self.current_stage}_start", self.start_time)
-            self.stage_timings[self.current_stage] = elapsed
-        
-        # Record new stage
-        self.stage_timings[f"{new_stage}_start"] = now
-        self.stage_history.append({
-            "stage": new_stage,
-            "previous_stage": self.current_stage,
-            "timestamp": now,
-            "metadata": metadata or {}
-        })
-        self.current_stage = new_stage
+        self.current_stage = stage
+        self.stage_history.append((stage, time.time()))
+        logger.debug(f"Task {self.task_id} moved to stage: {stage}")
     
-    def record_token_usage(self, stage: str, input_tokens: int, output_tokens: int) -> None:
+    def add_reasoning(self, step: str) -> None:
         """
-        Record token usage for a processing stage.
+        Add a reasoning step.
         
         Args:
-            stage: Name of the processing stage
-            input_tokens: Number of input tokens used
-            output_tokens: Number of output tokens generated
+            step: Reasoning step text
         """
-        self.token_usage[f"{stage}_input"] = input_tokens
-        self.token_usage[f"{stage}_output"] = output_tokens
-        
-        # Update totals
-        self.token_usage["total_input"] = sum(
-            v for k, v in self.token_usage.items() if k.endswith("_input")
-        )
-        self.token_usage["total_output"] = sum(
-            v for k, v in self.token_usage.items() if k.endswith("_output")
-        )
+        self.reasoning.append(step)
+        self.reasoning_iterations += 1
     
-    def record_model_candidates(self, candidates: List[Dict[str, Any]]) -> None:
+    def set_error(self, error: str) -> None:
         """
-        Record model candidates considered for this task.
+        Set error information.
         
         Args:
-            candidates: List of model candidates with scores and capabilities
+            error: Error message
         """
-        self.model_candidates = candidates
+        self.error = error
+        self.set_stage("error")
+        logger.error(f"Task {self.task_id} error: {error}")
     
-    def select_model(self, model_id: str, reason: Optional[str] = None) -> None:
+    def set_model(self, model: str) -> None:
         """
-        Record the selected model for this task.
+        Set the model used for processing.
         
         Args:
-            model_id: Identifier of the selected model
-            reason: Optional reason for selection
+            model: Model identifier
         """
-        self.selected_model = model_id
-        self.stage_history.append({
-            "stage": "model_selection",
-            "previous_stage": self.current_stage,
-            "timestamp": time.time(),
-            "metadata": {"model_id": model_id, "reason": reason}
-        })
+        self.model_used = model
+        self.set_stage("model_selected")
     
-    def record_error(self, error: Exception, stage: str, severity: str = "error") -> None:
+    def set_output(self, output: str) -> None:
         """
-        Record an error that occurred during processing.
+        Set the task output.
         
         Args:
-            error: The exception that occurred
-            stage: Stage where the error occurred
-            severity: Error severity level
+            output: Task output text
         """
-        self.errors.append({
-            "stage": stage,
-            "type": type(error).__name__,
-            "message": str(error),
-            "severity": severity,
-            "timestamp": time.time()
-        })
+        self.output = output
+        self.set_stage("completed")
     
-    def to_dict(self) -> Dict[str, Any]:
+    def set_cached(self, cached: bool) -> None:
         """
-        Convert state to a dictionary for serialization.
+        Set the cached flag.
+        
+        Args:
+            cached: Whether the result was from cache
+        """
+        self.cached = cached
+        
+    def add_stream_chunk(self, chunk: Dict[str, Any]) -> None:
+        """
+        Add a streaming output chunk.
+        
+        Args:
+            chunk: Stream chunk data
+        """
+        self.stream_chunks.append(chunk)
+        self.streaming = True
+    
+    def update_metrics(self, metric_name: str, value: Any) -> None:
+        """
+        Update a performance metric.
+        
+        Args:
+            metric_name: Name of the metric
+            value: Metric value
+        """
+        if metric_name in self.metrics:
+            self.metrics[metric_name] = value
+    
+    def finalize(self) -> None:
+        """
+        Finalize the state when processing is complete.
+        This updates timing metrics and can be used for cleanup.
+        """
+        self.end_time = time.time()
+        self.processing_time = self.end_time - self.start_time
+        self.metrics["processing_time"] = self.processing_time
+        
+        # Calculate stage times
+        stages = {}
+        for i in range(1, len(self.stage_history)):
+            stage_name, stage_start = self.stage_history[i-1]
+            _, stage_end = self.stage_history[i]
+            duration = stage_end - stage_start
+            stages[stage_name] = duration
+            
+        self.metrics["stage_times"] = stages
+        logger.debug(f"Task {self.task_id} finalized. Processing time: {self.processing_time:.2f}s")
+    
+    def set_expiry(self, expiry_time: float) -> None:
+        """
+        Set an expiration time for this state.
+        
+        Args:
+            expiry_time: Unix timestamp when this state should expire
+        """
+        self.expiry_time = expiry_time
+        
+    def is_expired(self) -> bool:
+        """
+        Check if this state has expired.
         
         Returns:
-            Dictionary representation of the state
+            True if expired, False otherwise
+        """
+        if self.expiry_time is None:
+            return False
+        return time.time() > self.expiry_time
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert state to dictionary.
+        
+        Returns:
+            Dictionary representation of state
         """
         return {
             "task_id": self.task_id,
-            "stages": [stage["stage"] for stage in self.stage_history],
+            "task": self.task,
             "current_stage": self.current_stage,
-            "selected_model": self.selected_model,
-            "reasoning_iterations": self.reasoning_iterations,
-            "total_time": time.time() - self.start_time,
-            "stage_timings": self.stage_timings,
-            "token_usage": self.token_usage,
-            "errors": self.errors
+            "start_time": self.start_time,
+            "processing_time": self.processing_time,
+            "model_used": self.model_used,
+            "cached": self.cached,
+            "error": self.error,
+            "metrics": self.metrics,
+            "reasoning_iterations": self.reasoning_iterations
         }
-    
-    def get_stage_timing(self, stage: str) -> Optional[float]:
-        """
-        Get the time spent in a specific stage.
-        
-        Args:
-            stage: Name of the stage
-            
-        Returns:
-            Time in seconds or None if stage not completed
-        """
-        return self.stage_timings.get(stage)
-    
-    def get_total_time(self) -> float:
-        """
-        Get the total processing time so far.
-        
-        Returns:
-            Total time in seconds
-        """
-        return time.time() - self.start_time
